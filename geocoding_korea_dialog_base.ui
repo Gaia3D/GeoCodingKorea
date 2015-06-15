@@ -316,7 +316,7 @@
      <item>
       <widget class="QProgressBar" name="progressBar">
        <property name="value">
-        <number>24</number>
+        <number>0</number>
        </property>
       </widget>
      </item>
@@ -360,7 +360,24 @@
    <item row="4" column="0">
     <layout class="QVBoxLayout" name="verticalLayout">
      <item>
-      <widget class="QTableWidget" name="dataTable"/>
+      <widget class="QTableWidget" name="dataTable">
+       <property name="rowCount">
+        <number>5</number>
+       </property>
+       <property name="columnCount">
+        <number>5</number>
+       </property>
+       <row/>
+       <row/>
+       <row/>
+       <row/>
+       <row/>
+       <column/>
+       <column/>
+       <column/>
+       <column/>
+       <column/>
+      </widget>
      </item>
     </layout>
    </item>
