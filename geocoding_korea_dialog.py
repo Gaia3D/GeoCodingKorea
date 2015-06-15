@@ -25,6 +25,15 @@ import os
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
 from PyQt4 import QtGui, uic
+import urllib2
+import json
+from threading import Thread
+
+
+from qgis.core import QgsApplication
+def forceGuiUpdate():
+    QgsApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
+
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'geocoding_korea_dialog_base.ui'))
@@ -32,6 +41,8 @@ FORM_CLASS, _ = uic.loadUiType(os.path.join(
 
 class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
     # Member variable
+    iface = None
+    layer = None
     _crs_name = None
     _address_col_name = None
     _sim_ratio_column = "sim_ratio"
@@ -53,9 +64,25 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
         self.ledtServiceName.setText(self._service_name_column)
         self.ledtCleanAddr.setText(self._request_addr_column)
         self.ledtRetAddr.setText(self._response_addr_column)
+        self._connect_action()
+
+    def _connect_action(self):
+        self.connect(self.btnRun, SIGNAL("clicked()"), self._on_btn_run)
+        self.connect(self.btnSave, SIGNAL("clicked()"), self._on_btn_save)
+
+    def set_layer(self, layer):
+        self.layer = layer
+        self._fill_addr_column()
+        self._fill_crs()
+        self._draw_data_table()
+
+    def show(self):
+        if not self.layer:
+            raise Exception("set_layer(layer) function must be call first.")
+        super(GeoCodingKoreaDialog, self).show()
 
     # 좌표계 정보 채우기
-    def fill_crs(self):
+    def _fill_crs(self):
         # 최근 사용한 좌표계 정보 채워 넣기. 좌표계 전체를 다 뿌리면 너무 많다!
         # http://gis.stackexchange.com/questions/86796/get-list-of-crs-in-qgis-by-python
         crs_list = QSettings().value('UI/recentProjectionsAuthId')
@@ -63,28 +90,30 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
         self.cmbCrs.addItems(crs_list)
 
         # Project의 좌표계를 기본으로 설정
-        crs_index = 0
-        crr_crs = self.iface.mapCanvas().mapRenderer().destinationCrs().authid()
         if not self._crs_name:
-            self._crs_name = crr_crs
+            self._crs_name = self.iface.mapCanvas().mapRenderer().destinationCrs().authid()
+        crs_index = 0
 
         for i in range(len(crs_list)):
             crs = crs_list[i]
-            if crs == crr_crs:
+            if crs == self._crs_name:
                 crs_index = i
         self.cmbCrs.setCurrentIndex(crs_index)
 
     # 원본 주소로 사용 가능한 텍스트 컬럼 확인
-    def fill_addr_column(self, layer):
-        provider = layer.dataProvider()
-        if not provider:
-            return
+    def _fill_addr_column(self):
+        if not self.layer:
+            raise Exception("self.layer must be set first.")
+
+        self.provider = self.layer.dataProvider()
+        if not self.provider:
+            raise Exception("Selected layer dose not have provider.")
 
         address_col_index = 0
-        fields = provider.fields()
-        field_name_list = []
-        for i in range(len(fields)):
-            field = fields[i]
+        self.fields = self.provider.fields()
+        self.field_name_list = []
+        for i in range(len(self.fields)):
+            field = self.fields[i]
             field_type = field.type()
             # 문자열 타입만 리스트에 추가
             if field_type != QVariant.String:
@@ -94,35 +123,38 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
                 self._address_col_name = field_name
             if self._address_col_name == field_name:
                 address_col_index = i
-            field_name_list.append(field_name)
+            self.field_name_list.append(field_name)
 
         # 원본 주소 컬럼 선택 가능하게 채우기
         self.cmbAddrCol.clear()
-        self.cmbAddrCol.addItems(field_name_list)
+        self.cmbAddrCol.addItems(self.field_name_list)
         self.cmbAddrCol.setCurrentIndex(address_col_index)
 
-    def draw_data_table(self, layer):
-        provider = layer.dataProvider()
-        fields = provider.fields()
+    def _draw_data_table(self):
+        if not self.layer:
+            raise Exception("self.layer must be set first.")
+
+        self.provider = self.layer.dataProvider()
+        fields = self.provider.fields()
         col_count = len(fields)
-        row_count = provider.featureCount()
+        self.row_count = self.provider.featureCount()
         self.dataTable.clear()
         self.repaint()
         self.dataTable.setColumnCount(col_count)
-        self.dataTable.setRowCount(row_count)
+        self.dataTable.setRowCount(self.row_count)
         header = []
         for i in fields:
             header.append(i.name())
         self.dataTable.setHorizontalHeaderLabels(header)
-        self.progressBar.setRange(0, row_count+1)
+        self.progressBar.setRange(0, self.row_count)
         self.progressBar.setFormat(self.tr('Drawing table') + ': %p%')
 
-        if row_count <= 200:
+        if self.row_count <= 200:
             formatting = True
         else:
             formatting = False
         i = 0
-        for f in layer.getFeatures():
+        for f in self.layer.getFeatures():
             self.progressBar.setValue(i+1)
             for j in range(col_count):
                 val = f[j]
@@ -134,3 +166,135 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
             i += 1
         self.dataTable.resizeColumnsToContents()
         self.progressBar.reset()
+
+    def _on_btn_run(self):
+        # 선택정보 수집
+        self._address_col_name = self.cmbAddrCol.currentText()
+        self._crs_name = self.cmbCrs.currentText()
+        self._sim_ratio_column = self.ledtSimRatio.text()
+        self._service_name_column = self.ledtServiceName.text()
+        self._request_addr_column = self.ledtCleanAddr.text()
+        self._response_addr_column = self.ledtRetAddr.text()
+
+        msg = u"'{}' 컬럼을 원본 주소 컬럼으로, '{}' 좌표계로 레이어를 생성하시겠습니까?".format(
+            self._address_col_name, self._crs_name)
+        reply = QtGui.QMessageBox.question(self, 'Message', msg,
+                                           QtGui.QMessageBox.Yes | QtGui.QMessageBox.No, QtGui.QMessageBox.No)
+        if reply == QtGui.QMessageBox.No:
+            return
+
+        # 새로 만들 컬럼들 확인해 없으면 만들기
+        if self._request_addr_column not in self.field_name_list:
+            self.field_name_list.append(self._request_addr_column)
+            self.dataTable.setColumnCount(len(self.field_name_list))
+            item = QTableWidgetItem(self._request_addr_column)
+            i = len(self.field_name_list)-1
+            self.i_request_addr_column = i
+            self.dataTable.setHorizontalHeaderItem(i, item)
+        else:
+            self.i_request_addr_column = self.field_name_list.index(self._request_addr_column)
+
+        if self._response_addr_column not in self.field_name_list:
+            self.field_name_list.append(self._response_addr_column)
+            self.dataTable.setColumnCount(len(self.field_name_list))
+            item = QTableWidgetItem(self._response_addr_column)
+            i = len(self.field_name_list)-1
+            self.i_response_addr_column = i
+            self.dataTable.setHorizontalHeaderItem(i, item)
+        else:
+            self.i_response_addr_column = self.field_name_list.index(self._request_addr_column)
+
+        if self._sim_ratio_column not in self.field_name_list:
+            self.field_name_list.append(self._sim_ratio_column)
+            self.dataTable.setColumnCount(len(self.field_name_list))
+            item = QTableWidgetItem(self._sim_ratio_column)
+            i = len(self.field_name_list)-1
+            self.i_sim_ratio_column = i
+            self.dataTable.setHorizontalHeaderItem(i, item)
+        else:
+            self.i_sim_ratio_column = self.field_name_list.index(self._request_addr_column)
+
+        if self._service_name_column not in self.field_name_list:
+            self.field_name_list.append(self._service_name_column)
+            self.dataTable.setColumnCount(len(self.field_name_list))
+            item = QTableWidgetItem(self._service_name_column)
+            i = len(self.field_name_list)-1
+            self.i_service_name_column = i
+            self.dataTable.setHorizontalHeaderItem(i, item)
+        else:
+            self.i_service_name_column = self.field_name_list.index(self._request_addr_column)
+
+        # 주소 컬럼에서 변환할 주소 찾아 변환 요청
+        i = 0
+        self.num_processed = 0
+        self.data_list = self.row_count * [None]
+        for f in self.layer.getFeatures():
+            org_addr = f[self._address_col_name]
+            # self.call_geocoding(i, org_addr)
+            th = Thread(target=self.call_geocoding, args=(i, org_addr, ))
+            th.start()
+            i += 1
+
+        # table update
+        #th = Thread(target=self.update_table)
+        #th.start()
+        self.update_table()
+
+    def call_geocoding(self, i, address):
+        encoded_str = urllib2.quote(address.encode("utf-8"))
+        url = "http://geeps.krihs.re.kr/geocoding/api?q={}&id={}&crs=epsg:4326&format=json".format(encoded_str, i)
+        response = urllib2.urlopen(url)
+        header = response.info()
+        data = response.read()
+        dic = json.loads(data, "utf-8")
+        dic["new"] = True
+        dic["id"] = i
+        self.data_list[i] = dic
+
+    def update_table(self):
+        while self.num_processed <= self.row_count:
+            for dic in self.data_list:
+                if dic and dic["new"]:
+                    break
+            if not dic:
+                continue
+
+            dic["new"] = False
+            i = dic["id"]
+            req_addr = dic["q"]
+            ret_addr = dic["address"]
+            lng = dic["lng"]
+            lat = dic["lat"]
+            sim_ratio = dic["sim_ratio"]
+            sd = dic["sd"]
+            service = dic["geojson"]["properties"]["service"]
+
+            item = QTableWidgetItem(unicode(req_addr or ''))
+            item.setFlags(Qt.ItemIsSelectable)
+            item.setTextAlignment(Qt.AlignLeft)
+            self.dataTable.setItem(i, self.i_request_addr_column, item)
+
+            item = QTableWidgetItem(unicode(ret_addr or ''))
+            item.setFlags(Qt.ItemIsSelectable)
+            item.setTextAlignment(Qt.AlignLeft)
+            self.dataTable.setItem(i, self.i_response_addr_column, item)
+
+            item = QTableWidgetItem(unicode(sim_ratio or ''))
+            item.setFlags(Qt.ItemIsSelectable)
+            item.setTextAlignment(Qt.AlignRight)
+            self.dataTable.setItem(i, self.i_sim_ratio_column, item)
+
+            item = QTableWidgetItem(unicode(service or ''))
+            item.setFlags(Qt.ItemIsSelectable)
+            item.setTextAlignment(Qt.AlignHCenter)
+            self.dataTable.setItem(i, self.i_service_name_column, item)
+
+            self.num_processed += 1
+            self.progressBar.setValue(self.num_processed)
+            forceGuiUpdate()
+
+        self.progressBar.reset()
+        QMessageBox.warning(self.iface.mainWindow(), self.tr('GeoCoding for Korea'), u"변환이 완료되었습니다.")
+
+    def _on_btn_save(self):
+        pass

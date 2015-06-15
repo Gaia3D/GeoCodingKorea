@@ -192,10 +192,8 @@ class GeoCodingKorea:
                 + u'속성 테이블은 엑셀 파일이나 CSV 파일을 레이어 트리에 끌어다 놓아 만드실 수 있습니다.')
             return
 
-        self.dlg.fill_crs()
-        self.dlg.fill_addr_column(layer)
-        # 테이블에 컬럼과 테이터를 채워 넣기
-        self.dlg.draw_data_table(layer)
+        # 레이어의 속성 정보를 테이블에 채워 넣기
+        self.dlg.set_layer(layer)
 
         # show the dialog
         self.dlg.show()
@@ -205,16 +203,5 @@ class GeoCodingKorea:
         result = self.dlg.exec_()
         # See if OK was pressed
         if result:
-            # Do something useful here - delete the line containing pass and
-            # substitute with your code.
-
-            # TODO: 모든 항목들이 선택되었는지 확인
-
-            # TODO: 새로 만들 컬럼들 확인 해 없으면 만들기
-
-            # TODO: 주소 컬럼에서 변환할 주소 수집
-
-            # TODO: 반환된 정보를 각 컬럼에 반영
-
             pass
 
