@@ -48,7 +48,7 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
     _sim_ratio_column = "sim_ratio"
     _service_name_column = "svc_name"
     _request_addr_column = "req_addr"
-    _response_addr_column = "res_addr"
+    _response_addr_column = "ret_addr"
 
     def __init__(self, iface, parent=None):
         """Constructor."""
@@ -146,8 +146,6 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
         for i in fields:
             header.append(i.name())
         self.dataTable.setHorizontalHeaderLabels(header)
-        self.progressBar.setRange(0, self.row_count)
-        self.progressBar.setFormat(self.tr('Drawing table') + ': %p%')
 
         if self.row_count <= 200:
             formatting = True
@@ -155,7 +153,6 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
             formatting = False
         i = 0
         for f in self.layer.getFeatures():
-            self.progressBar.setValue(i+1)
             for j in range(col_count):
                 val = f[j]
                 item = QTableWidgetItem(unicode(val or 'NULL'))
@@ -165,7 +162,6 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
                 self.dataTable.setItem(i, j, item)
             i += 1
         self.dataTable.resizeColumnsToContents()
-        self.progressBar.reset()
 
     def _on_btn_run(self):
         # 선택정보 수집
@@ -182,6 +178,11 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
                                            QtGui.QMessageBox.Yes | QtGui.QMessageBox.No, QtGui.QMessageBox.No)
         if reply == QtGui.QMessageBox.No:
             return
+
+        self.progressBar.setRange(0, self.row_count)
+        self.progressBar.setFormat(self.tr('GeoCoding') + ': %p%')
+        self.progressBar.setValue(1)
+        forceGuiUpdate()
 
         # 새로 만들 컬럼들 확인해 없으면 만들기
         if self._request_addr_column not in self.field_name_list:
@@ -202,7 +203,7 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
             self.i_response_addr_column = i
             self.dataTable.setHorizontalHeaderItem(i, item)
         else:
-            self.i_response_addr_column = self.field_name_list.index(self._request_addr_column)
+            self.i_response_addr_column = self.field_name_list.index(self._response_addr_column)
 
         if self._sim_ratio_column not in self.field_name_list:
             self.field_name_list.append(self._sim_ratio_column)
@@ -212,7 +213,7 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
             self.i_sim_ratio_column = i
             self.dataTable.setHorizontalHeaderItem(i, item)
         else:
-            self.i_sim_ratio_column = self.field_name_list.index(self._request_addr_column)
+            self.i_sim_ratio_column = self.field_name_list.index(self._sim_ratio_column)
 
         if self._service_name_column not in self.field_name_list:
             self.field_name_list.append(self._service_name_column)
@@ -222,9 +223,10 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
             self.i_service_name_column = i
             self.dataTable.setHorizontalHeaderItem(i, item)
         else:
-            self.i_service_name_column = self.field_name_list.index(self._request_addr_column)
+            self.i_service_name_column = self.field_name_list.index(self._service_name_column)
 
         # 주소 컬럼에서 변환할 주소 찾아 변환 요청
+        # 멀티쓰레드로 한꺼번에 요청
         i = 0
         self.num_processed = 0
         self.data_list = self.row_count * [None]
@@ -235,10 +237,11 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
             th.start()
             i += 1
 
-        # table update
-        #th = Thread(target=self.update_table)
-        #th.start()
+        # 쓰레드가 주는 결과를 찾아 다 올때까지 테이블 업데이트
         self.update_table()
+
+        self.progressBar.reset()
+        QMessageBox.warning(self.iface.mainWindow(), self.tr('GeoCoding for Korea'), u"변환이 완료되었습니다.")
 
     def call_geocoding(self, i, address):
         encoded_str = urllib2.quote(address.encode("utf-8"))
@@ -250,12 +253,20 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
         dic["new"] = True
         dic["id"] = i
         self.data_list[i] = dic
+        self.num_processed += 1
 
     def update_table(self):
-        while self.num_processed <= self.row_count:
+        done_count = 0
+        while done_count < self.row_count:
+            done_count = 0
+            dic = None
             for dic in self.data_list:
-                if dic and dic["new"]:
-                    break
+                if dic:
+                    if dic["new"]:
+                        break
+                    else:
+                        done_count += 1
+
             if not dic:
                 continue
 
@@ -282,6 +293,7 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
             item = QTableWidgetItem(unicode(sim_ratio or ''))
             item.setFlags(Qt.ItemIsSelectable)
             item.setTextAlignment(Qt.AlignRight)
+            item.setBackground(QBrush(bg_color))
             self.dataTable.setItem(i, self.i_sim_ratio_column, item)
 
             item = QTableWidgetItem(unicode(service or ''))
@@ -289,12 +301,9 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
             item.setTextAlignment(Qt.AlignHCenter)
             self.dataTable.setItem(i, self.i_service_name_column, item)
 
-            self.num_processed += 1
             self.progressBar.setValue(self.num_processed)
             forceGuiUpdate()
 
-        self.progressBar.reset()
-        QMessageBox.warning(self.iface.mainWindow(), self.tr('GeoCoding for Korea'), u"변환이 완료되었습니다.")
 
     def _on_btn_save(self):
         pass
