@@ -28,10 +28,10 @@ from PyQt4 import QtGui, uic
 import urllib2
 import json
 from threading import Thread
-
-
 from qgis.core import QgsApplication
-def forceGuiUpdate():
+
+
+def force_gui_update():
     QgsApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
 
 
@@ -49,6 +49,7 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
     _service_name_column = "svc_name"
     _request_addr_column = "req_addr"
     _response_addr_column = "ret_addr"
+    _sd_column = 'sd'
 
     def __init__(self, iface, parent=None):
         """Constructor."""
@@ -64,6 +65,8 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
         self.ledtServiceName.setText(self._service_name_column)
         self.ledtCleanAddr.setText(self._request_addr_column)
         self.ledtRetAddr.setText(self._response_addr_column)
+        self.ledtSd.setText(self._sd_column)
+        self.btnSave.setEnabled(False)
         self._connect_action()
 
     def _connect_action(self):
@@ -74,12 +77,17 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
         self.layer = layer
         self._fill_addr_column()
         self._fill_crs()
+        self.ledtLayerName.setText(layer.name()+'_geocoding')
         self._draw_data_table()
+        self.progressBar.reset()
 
     def show(self):
         if not self.layer:
             raise Exception("set_layer(layer) function must be call first.")
         super(GeoCodingKoreaDialog, self).show()
+
+    def alert(self, msg):
+         QMessageBox.warning(self.iface.mainWindow(), self.tr('GeoCoding for Korea'), msg)
 
     # 좌표계 정보 채우기
     def _fill_crs(self):
@@ -171,9 +179,9 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
         self._service_name_column = self.ledtServiceName.text()
         self._request_addr_column = self.ledtCleanAddr.text()
         self._response_addr_column = self.ledtRetAddr.text()
+        self._sd_column = self.ledtSd.text()
 
-        msg = u"'{}' 컬럼을 원본 주소 컬럼으로, '{}' 좌표계로 레이어를 생성하시겠습니까?".format(
-            self._address_col_name, self._crs_name)
+        msg = u"'{}' 컬럼을 원본 주소 컬럼으로 이용해 지오코딩을 하시겠습니까?".format(self._address_col_name)
         reply = QtGui.QMessageBox.question(self, 'Message', msg,
                                            QtGui.QMessageBox.Yes | QtGui.QMessageBox.No, QtGui.QMessageBox.No)
         if reply == QtGui.QMessageBox.No:
@@ -182,7 +190,7 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
         self.progressBar.setRange(0, self.row_count)
         self.progressBar.setFormat(self.tr('GeoCoding') + ': %p%')
         self.progressBar.setValue(1)
-        forceGuiUpdate()
+        force_gui_update()
 
         # 새로 만들 컬럼들 확인해 없으면 만들기
         if self._request_addr_column not in self.field_name_list:
@@ -225,6 +233,16 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
         else:
             self.i_service_name_column = self.field_name_list.index(self._service_name_column)
 
+        if self._sd_column not in self.field_name_list:
+            self.field_name_list.append(self._sd_column)
+            self.dataTable.setColumnCount(len(self.field_name_list))
+            item = QTableWidgetItem(self._sd_column)
+            i = len(self.field_name_list)-1
+            self.i_sd_column = i
+            self.dataTable.setHorizontalHeaderItem(i, item)
+        else:
+            self.i_sd_column = self.field_name_list.index(self._sd_column)
+
         # 주소 컬럼에서 변환할 주소 찾아 변환 요청
         # 멀티쓰레드로 한꺼번에 요청
         i = 0
@@ -241,7 +259,12 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
         self.update_table()
 
         self.progressBar.reset()
-        QMessageBox.warning(self.iface.mainWindow(), self.tr('GeoCoding for Korea'), u"변환이 완료되었습니다.")
+        self.alert( u"변환이 완료되었습니다.\n"
+                    u"주소 유사도가 낮은 주소는 편집해 개선 가능합니다.\n"
+                    u"현재 결과에 만족하시면 [레이어로 만들기]을 눌러 작업을 완료하세요.\n"
+                    u"만들어진 레이어는 메모리 레이어이므로 파일이나 DB에 저장하셔야 합니다.")
+        self.btnSave.setEnabled(True)
+        self.lblMessage.setText(u"주소 유사도가 낮은 행은 원본 주소 컬럼의 주소를 수동으로 편집해서 개선 가능합니다.")
 
     def call_geocoding(self, i, address):
         encoded_str = urllib2.quote(address.encode("utf-8"))
@@ -293,6 +316,14 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
             item = QTableWidgetItem(unicode(sim_ratio or ''))
             item.setFlags(Qt.ItemIsSelectable)
             item.setTextAlignment(Qt.AlignRight)
+            # 유사도에 따라 색 변경
+            if sim_ratio < 90:
+                bg_color = QColor(255, 0, 0)  # Red
+            elif sim_ratio < 100:
+                bg_color = QColor(255, 255, 0)  # Yellow
+            else:
+                bg_color = QColor(255, 255, 255)
+            item.setBackground(QBrush(bg_color))
             self.dataTable.setItem(i, self.i_sim_ratio_column, item)
 
             item = QTableWidgetItem(unicode(service or ''))
@@ -300,9 +331,20 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
             item.setTextAlignment(Qt.AlignHCenter)
             self.dataTable.setItem(i, self.i_service_name_column, item)
 
+            item = QTableWidgetItem(unicode(sd or '0'))
+            item.setFlags(Qt.ItemIsSelectable)
+            item.setTextAlignment(Qt.AlignRight)
+            if sd > 50:
+                bg_color = QColor(255, 0, 0)  # Red
+            else:
+                bg_color = QColor(255, 255, 255)
+            item.setBackground(QBrush(bg_color))
+            self.dataTable.setItem(i, self.i_sd_column, item)
+
             self.progressBar.setValue(self.num_processed)
-            forceGuiUpdate()
+            force_gui_update()
 
 
     def _on_btn_save(self):
+        # TODO: 저장루틴 구현
         pass
