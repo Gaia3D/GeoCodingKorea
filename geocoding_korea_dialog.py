@@ -293,7 +293,6 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
             item = QTableWidgetItem(unicode(sim_ratio or ''))
             item.setFlags(Qt.ItemIsSelectable)
             item.setTextAlignment(Qt.AlignRight)
-            item.setBackground(QBrush(bg_color))
             self.dataTable.setItem(i, self.i_sim_ratio_column, item)
 
             item = QTableWidgetItem(unicode(service or ''))
