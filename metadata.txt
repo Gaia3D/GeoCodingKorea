@@ -24,7 +24,7 @@ email=jangbi882@gmail.com
 # Tags are comma separated with spaces allowed
 tags=geocoding
 
-homepage=https://github.com/Gaia3D/GeoCodingKorea/wiki
+homepage=http://geeps.krihs.re.kr/?wiki=GeoCoding%20for%20Korea
 tracker=https://github.com/Gaia3D/GeoCodingKorea/issues
 repository=https://github.com/Gaia3D/GeoCodingKorea.git
 category=Web
