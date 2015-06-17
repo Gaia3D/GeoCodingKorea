@@ -10,7 +10,7 @@
 name=GeoCoding for Korea
 qgisMinimumVersion=2.0
 description=Convert Korean address to geomery
-version=0.9
+version=1.0
 author=BJ Jang/Gaia3D
 email=jangbi882@gmail.com
 

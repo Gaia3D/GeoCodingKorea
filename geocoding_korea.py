@@ -23,12 +23,9 @@
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
 from qgis.core import *
-# Initialize Qt resources from file resources.py
-# import resources_rc
-# Import the code for the dialog
 from geocoding_korea_dialog import GeoCodingKoreaDialog
 import os.path
-import resources_rc
+import webbrowser
 
 
 class GeoCodingKorea:
@@ -161,11 +158,17 @@ class GeoCodingKorea:
     def initGui(self):
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
 
-        icon_path = ':/plugins/GeoCodingKorea/icon.png'
+        icon_path = os.path.dirname(__file__) + "/icon.png"
         self.add_action(
             icon_path,
             text=self.tr('GeoCoding for Korea'),
             callback=self.run,
+            parent=self.iface.mainWindow())
+        icon_path = os.path.dirname(__file__) + "/help.png"
+        self.add_action(
+            icon_path,
+            text=self.tr('Help'),
+            callback=self.help,
             parent=self.iface.mainWindow())
 
     def unload(self):
@@ -205,3 +208,5 @@ class GeoCodingKorea:
         if result:
             pass
 
+    def help(self):
+        webbrowser.open_new(u'http://geeps.krihs.re.kr/?wiki=GeoCoding%20for%20Korea')

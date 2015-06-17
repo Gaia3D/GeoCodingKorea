@@ -29,7 +29,7 @@ import urllib2
 import json
 from threading import Thread
 from qgis.core import *
-
+import re
 
 def force_gui_update():
     QgsApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
@@ -45,11 +45,11 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
     layer = None
     _crs_name = None
     _address_col_name = None
-    _sim_ratio_column = "sim_ratio"
-    _service_name_column = "svc_name"
-    _request_addr_column = "req_addr"
-    _response_addr_column = "ret_addr"
-    _sd_column = 'sd'
+    _sim_ratio_column = u"주소유사도"
+    _service_name_column = u"성공서비스"
+    _request_addr_column = u"정제주소"
+    _response_addr_column = u"반환주소"
+    _sd_column = u'거리편차'
     i_address_column = None
     flag_edit_mode = False
 
@@ -57,6 +57,7 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
     red = QColor(255,0,0)
     yellow = QColor(255,255,0)
     white = QColor(255,255,255)
+    liteYellow = QColor(255,255,215)
 
     def __init__(self, iface, parent=None):
         """Constructor."""
@@ -81,6 +82,7 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
         self.connect(self.btnSave, SIGNAL("clicked()"), self._on_btn_save)
         self.connect(self.dataTable, SIGNAL("cellChanged(int, int)"), self._on_address_changed)
         self.connect(self.dataTable, SIGNAL("cellClicked(int, int)"), self._on_cell_clicked)
+        self.connect(self.dataTable, SIGNAL("cellDoubleClicked(int, int)"), self._on_cell_double_clicked)
 
     def set_layer(self, layer):
         self.flag_edit_mode = False
@@ -96,6 +98,14 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
         self.progressBar.reset()
         self.lblMessage.setText(u"원본 주소 컬럼에 주소가 있는 컬럼을 선택하시고, [변환 시작!] 버튼을 눌러 주세요.")
         super(GeoCodingKoreaDialog, self).show()
+
+    def close(self):
+        # 내부 변수 제거
+        self.data_list = None
+        self.dataTable.setColumnCount(0)
+        self.dataTable.setRowCount(0)
+        self.btnSave.setEnabled(False)
+        super(GeoCodingKoreaDialog, self).close()
 
     def alert(self, msg):
         QMessageBox.information(self.iface.mainWindow(), self.tr('GeoCoding for Korea'), msg)
@@ -201,6 +211,8 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
         if reply == QtGui.QMessageBox.No:
             return
 
+        QgsApplication.setOverrideCursor(Qt.WaitCursor)
+
         self.progressBar.setRange(0, self.row_count)
         self.progressBar.setFormat(self.tr('GeoCoding') + ': %p%')
         self.progressBar.setValue(1)
@@ -280,19 +292,29 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
         self.progressBar.reset()
         self.dataTable.resizeColumnsToContents()
 
+        # 주소 편집시 이벤트 처리되게 설정
+        self.flag_edit_mode = True
+        QgsApplication.restoreOverrideCursor()
+
         self.alert( u"변환이 완료되었습니다.\n\n"
                     u"주소 유사도가 낮은 주소는 편집해 개선 가능합니다.\n"
                     u"현재 결과에 만족하시면 [레이어로 만들기]을 눌러 작업을 완료하세요.")
         self.btnSave.setEnabled(True)
         self.lblMessage.setText(u"주소 유사도가 낮은 행은 원본 주소 컬럼의 주소를 수동으로 편집해서 개선 가능합니다.")
 
-        # 주소 편집시 이벤트 처리되게 설정
-        self.flag_edit_mode = True
-
     def call_geocoding(self, i, address):
+        test_addr = re.sub(u"\s+", u"", address)
+        if address == "" or address == "NULL" or test_addr == u"주소":
+            dic = dict()
+            dic["new"] = True
+            dic["id"] = i
+            self.data_list[i] = dic
+            self.num_processed += 1
+            return
+
         encoded_str = urllib2.quote(address.encode("utf-8"))
-        #url = "http://geeps.krihs.re.kr/geocoding/api?q={}&id={}&crs=epsg:4326&format=json".format(encoded_str, i)
-        url = "http://localhost/geocoding/api?q={}&id={}&crs=epsg:4326&format=json".format(encoded_str, i)
+        url = "http://geeps.krihs.re.kr/geocoding/api?q={}&id={}&crs=epsg:4326&format=json".format(encoded_str, i)
+        #url = "http://localhost/geocoding/api?q={}&id={}&crs=epsg:4326&format=json".format(encoded_str, i)
 
         try:
             response = urllib2.urlopen(url)
@@ -303,18 +325,7 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
             dic["id"] = i
             self.data_list[i] = dic
             self.num_processed += 1
-        except urllib2.HTTPError, e:
-            dic = dict()
-            dic["new"] = True
-            dic["id"] = i
-            self.data_list[i] = dic
-            self.num_processed += 1
-        except urllib2.URLError, e:
-            dic = dict()
-            dic["new"] = True
-            dic["id"] = i
-            self.data_list[i] = dic
-            self.num_processed += 1
+
         except Exception:
             dic = dict()
             dic["new"] = True
@@ -358,8 +369,9 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
             self.dataTable.setItem(i, self.i_request_addr_column, item)
 
             item = QTableWidgetItem(unicode(ret_addr or ''))
-            item.setFlags(Qt.ItemIsSelectable)
+            item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
             item.setTextAlignment(Qt.AlignLeft)
+            item.setBackground(QBrush(self.liteYellow))
             self.dataTable.setItem(i, self.i_response_addr_column, item)
 
             item = QTableWidgetItem(unicode(sim_ratio or ''))
@@ -396,6 +408,7 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
             self.dataTable.setItem(i, self.i_sd_column, item)
         except Exception:
             item = QTableWidgetItem(unicode('Error'))
+            item.setBackground(QBrush(self.yellow))
             self.dataTable.setItem(i, self.i_response_addr_column, item)
 
         self.progressBar.setValue(self.num_processed)
@@ -407,19 +420,34 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
         if j != self.i_address_column:
             return
 
+        QgsApplication.setOverrideCursor(Qt.WaitCursor)
         org_addr = self.dataTable.item(i, j).text()
         self.call_geocoding(i, org_addr)
 
         dic = self.data_list[i]
         self.update_row(dic)
+
+        QgsApplication.restoreOverrideCursor()
         self.lblMessage.setText(u"{}행 '{}' 재변환 완료. 주소 유사도 {}%".format(i+1, org_addr, dic["sim_ratio"]))
 
     def _on_cell_clicked(self, i, j):
         self.dataTable.clearSelection()
         self.dataTable.setRangeSelected(QTableWidgetSelectionRange(i, 0, i, len(self.field_name_list)-1), True)
 
+    def _on_cell_double_clicked(self, i, j):
+        if j == self.i_response_addr_column:
+            msg = u"변환 주소를 원본 주소 컬럼에 복사하고 재변환 하시겠습니까?".format(self._address_col_name)
+            reply = QtGui.QMessageBox.question(self, 'Message', msg,
+                                           QtGui.QMessageBox.Yes | QtGui.QMessageBox.No, QtGui.QMessageBox.No)
+            if reply == QtGui.QMessageBox.No:
+                return
+
+            new_addr = self.dataTable.item(i, self.i_response_addr_column).text()
+            self.dataTable.item(i, self.i_address_column).setText(new_addr)
+
     def _on_btn_save(self):
         self.flag_edit_mode = False
+        QgsApplication.setOverrideCursor(Qt.WaitCursor)
 
         # 새 메모리 레이어 생성
         tCrs = self.cmbCrs.currentText()
@@ -434,6 +462,12 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
             attr_list.append(QgsField(org_field.name(), org_field.type()))
 
         # 추가 컬럼 생성
+        if self.i_request_addr_column >= org_num_filed:
+            attr_list.append(QgsField(self._request_addr_column, QVariant.String))
+            i_request_addr_column = len(attr_list)-1
+        else:
+            i_request_addr_column = self.i_response_addr_column
+
         if self.i_response_addr_column >= org_num_filed:
             attr_list.append(QgsField(self._response_addr_column, QVariant.String))
             i_response_addr_column = len(attr_list)-1
@@ -445,6 +479,12 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
             i_sim_ratio_column = len(attr_list)-1
         else:
             i_sim_ratio_column = self.i_sd_column
+
+        if self.i_service_name_column >= org_num_filed:
+            attr_list.append(QgsField(self._service_name_column, QVariant.Int))
+            i_service_name_column = len(attr_list)-1
+        else:
+            i_service_name_column = self.i_sd_column
 
         if self.i_sd_column >= org_num_filed:
             attr_list.append(QgsField(self._sd_column, QVariant.Int))
@@ -467,30 +507,36 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
         for f in self.layer.getFeatures():
             dic = self.data_list[i]
 
-            # 지오메트리 생성
-            oPnt = QgsPoint(dic["lng"],dic["lat"])
+            try:
+                # 지오메트리 생성
+                oPnt = QgsPoint(dic["lng"],dic["lat"])
 
-            # 좌표계 변환
-            tPnt = xform.transform(oPnt)
+                # 좌표계 변환
+                tPnt = xform.transform(oPnt)
 
-            iGeom = QgsGeometry.fromPoint(tPnt)
+                iGeom = QgsGeometry.fromPoint(tPnt)
 
-            tFeature = QgsFeature(tProvider.fields())
-            tFeature.setGeometry(iGeom)
+                tFeature = QgsFeature(tProvider.fields())
+                tFeature.setGeometry(iGeom)
 
-            # 데이터 부어 넣기
-            for j_col in range(org_num_filed):
-                tFeature.setAttribute(j_col, f[j_col])
+                # 데이터 부어 넣기
+                for j_col in range(org_num_filed):
+                    tFeature.setAttribute(j_col, f[j_col])
 
-            # 원본 주소 컬럼 갱신
-            tFeature.setAttribute(self.i_address_column, self.dataTable.item(i, self.i_address_column).text())
+                # 원본 주소 컬럼 갱신
+                tFeature.setAttribute(self.i_address_column, self.dataTable.item(i, self.i_address_column).text())
 
-            # 추가된 컬럼에 값 넣기
-            tFeature.setAttribute(i_response_addr_column, self.dataTable.item(i, self.i_response_addr_column).text())
-            tFeature.setAttribute(i_sim_ratio_column, self.dataTable.item(i, self.i_sim_ratio_column).text())
-            tFeature.setAttribute(i_sd_column, self.dataTable.item(i, self.i_sd_column).text())
+                # 추가된 컬럼에 값 넣기
+                tFeature.setAttribute(i_request_addr_column, self.dataTable.item(i, self.i_request_addr_column).text())
+                tFeature.setAttribute(i_response_addr_column, self.dataTable.item(i, self.i_response_addr_column).text())
+                tFeature.setAttribute(i_sim_ratio_column, self.dataTable.item(i, self.i_sim_ratio_column).text())
+                tFeature.setAttribute(i_service_name_column, self.dataTable.item(i, self.i_service_name_column).text())
+                tFeature.setAttribute(i_sd_column, self.dataTable.item(i, self.i_sd_column).text())
 
-            t_feature_list.append(tFeature)
+                t_feature_list.append(tFeature)
+            except Exception:
+                pass  # 지오메트리 없는 경우
+
             i += 1
 
         tProvider.addFeatures(t_feature_list)
@@ -500,12 +546,7 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
         QgsMapLayerRegistry.instance().addMapLayer(tLayer)
         self.iface.mapCanvas().setExtent(tLayer.extent())
         self.iface.mapCanvas().refresh()
-
-        # 내부 변수 제거
-        self.data_list = None
-        self.dataTable.setColumnCount(0)
-        self.dataTable.setRowCount(0)
-        self.btnSave.setEnabled(False)
+        QgsApplication.restoreOverrideCursor()
 
         # 대화상자 닫기
         self.close()

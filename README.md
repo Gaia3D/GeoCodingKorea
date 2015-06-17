@@ -14,3 +14,10 @@ This QGIS Plugin is just for Korean, that can convert address in table to geomet
 이 플러그인은 여러 GeoCoding API를 종합적으로 이용하기에 변환 성공률이 높고,
 정제된 변환전 주소와 변환후 주소의 유사도를 비교하여 가장 유사한 주소를 반환한 서비스의 값을 택합니다.
 또한, 정확치는 않지만 여러 서비스가 변환에 성공한 경우, 거리의 편차를 통계적으로 제시하여 정확도를 추측할 수 있게 합니다.
+
+
+ICON
+=======
+Artist: PixelKit (http://www.iconarchive.com/show/gentle-edges-icons-by-pixelkit.html)
+License: CC Attribution 4.0 (http://creativecommons.org/licenses/by/4.0/)
+Icon Site: http://pixelkit.com
