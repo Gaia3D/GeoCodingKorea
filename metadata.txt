@@ -7,12 +7,14 @@
 # This file should be included when you package your plugin.# Mandatory items:
 
 [general]
-name=GeoCoding for Korea
-qgisMinimumVersion=2.0
+name=GeoCodingKorea
+qgisMinimumVersion=2.3
 description=Convert Korean address to geomery
 version=1.0
-author=BJ Jang/Gaia3D
+author=BJ Jang
 email=jangbi882@gmail.com
+
+about:This plugin allows the user to search for an Korean address and make it to geometry (geocoding) using VWorld, Daum, Naver and Google GeoCoding API.
 
 # End of mandatory metadata
 
