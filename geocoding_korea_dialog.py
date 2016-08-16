@@ -115,6 +115,8 @@ class GeoCodingKoreaDialog(QtGui.QDialog, FORM_CLASS):
         # 최근 사용한 좌표계 정보 채워 넣기. 좌표계 전체를 다 뿌리면 너무 많다!
         # http://gis.stackexchange.com/questions/86796/get-list-of-crs-in-qgis-by-python
         crs_list = QSettings().value('UI/recentProjectionsAuthId')
+        if not crs_list:
+            crs_list = [u'EPSG:4326']
         self.cmbCrs.clear()
         self.cmbCrs.addItems(crs_list)
 
